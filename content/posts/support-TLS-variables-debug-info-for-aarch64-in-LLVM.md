@@ -8,11 +8,11 @@ draft: false
 This is my attempt to fix the long standing debug info support for TLS variables for AArch64. And I wanted to document this since it involved everything, Compiler, Assembler, Linker, Debugger, utils like dwarfdump, ABI changes and Compatibility with GCC toolchian.  
 
 ### Background -  
-TLS stands for Thread Local Storage. These variables have local storage which means - each thread gets its unique, independent instance of variable. This was introduced in C++11 as `thread_local` keyword and in C as `_Thread_local` keyword with `<threads.h>`.
+TLS stands for Thread Local Storage. These variables have local storage which means each thread gets its unique, independent instance of variable. This was introduced in C++11 as `thread_local` keyword and in C as `_Thread_local` keyword with `<threads.h>`.
 
 They are heavily used in performance-critical software like database systems such as ScyllaDB where developers have reported issues with TLS debugging. 
 
-There have been a lot reports that TLS variable debugging is not working as expected and this issue is open from nine years -  
+There have been many reports that TLS variable debugging is not working as expected and this issue has been open from nine years -  
 https://gcc.gnu.org/bugzilla/show_bug.cgi?id=83010  
 https://gcc.gnu.org/bugzilla/show_bug.cgi?id=119531  
 https://gcc.gnu.org/bugzilla/show_bug.cgi?id=97344   
@@ -46,9 +46,9 @@ TP (thread pointer)
 | v  = 1               |  <-- offset A
 +----------------------+
 ```
-Same layout, different memory region.
+They have same layout but different memory region.
 Address Formula for both threads:
-&v = TP + offset_v.
+`&v = TP + offset_v`.
 Only TP changes per thread.
 
 ### Last Status of LLVM and GCC -  
@@ -93,6 +93,7 @@ $1 = <optimized out>
 (gdb) p a::v2
 $2 = {x = 1, y = 2, z = 3}
 ```
+
 ```
 (lldb) p a::v1 
 error: expression failed to parse:
@@ -101,8 +102,7 @@ a::v1
 ~~~^
 ```
 
-This happened because both GCC and LLVM do not emit the offset with DW_AT_Location for TLS variable making it difficult for debugger to guess it. So it says 
-variable have been optimize out. It has access to symbol table but that alone was not sufficient to cover all cases even basic ones.
+This happened because both GCC and LLVM do not emit the offset with DW_AT_location for TLS variable making it difficult for debugger to guess it. For non-static TLS varible GCC can uses libthread_db to heuristically determine variable location but not static varible it need proper location, without that it says variable have been optimize out. It has access to symbol table but that alone was not sufficient to cover all cases even basic ones.
 
 ### Current Status of LLVM 
 ```
@@ -133,7 +133,7 @@ address = Thread Pointer (TP) + offset
 ```
 This means debug information must describe how to compute the address, not just provide a static location.
 
-So the plan was to emit DW_AT_Location which encode DW_OP_form_tls_address and provide a `constant offset` so it looks like this -  
+So the plan was to emit DW_AT_location which encode DW_OP_form_tls_address and provide a `constant offset` so it looks like this -  
 ```
 DW_AT_location  (DW_OP_const8u 0x0, DW_OP_GNU_push_tls_address)
 ```
@@ -162,8 +162,8 @@ At link time, this relocation is resolved to the correct offset within the TLS b
 
 #### Pull request submitted -   
 ##### Prerequisites Pull requests -
-1 - There are one pull request submitted by Igor Kudrin to support it LLDB by doing the calculation right in DynamicLoaderPOSIXDYLD::GetThreadLocalData.
-https://github.com/llvm/llvm-project/commit/a4d786630c4757ce91aef65fc2744fbde650632d, I think that fixes the previous `no member named 'v1' in namespace 'a'` error that we
+1 - There is one pull request submitted by Igor Kudrin to support it LLDB by doing the calculation right in DynamicLoaderPOSIXDYLD::GetThreadLocalData.
+https://github.com/llvm/llvm-project/commit/a4d786630c4757ce91aef65fc2744fbde650632d, I think that fixes the earlier `no member named 'v1' in namespace 'a'` error that we
 seen earlier.  
 
 2 - https://github.com/ARM-software/abi-aa/commit/d455ef1e884fe7a3c4f1e05ed40cdeed9103dea9 for Aarch64 ABI changes by Peter Smith.
@@ -185,7 +185,7 @@ This shows that TLS offsets are now preserved in debug sections via relocations,
 
 ##### Main Pulls requests -
 1 - https://github.com/llvm/llvm-project/commit/60c102036acf1508b66b1c3e29ffba10d21a6645
-This commit is to support recognise the %dtprel() relocation in assmbely with LLVM assembler which will be emitted by llc/clang in next patch. The %dtprel(v) is the new syntax recently added in https://github.com/llvm/llvm-project/commit/bed89970c3df5e755820708580e405f65ddaa1ba. With this clang can emit 
+This commit is to support recognising the %dtprel() relocation in assmbely with LLVM assembler which will be emitted by llc/clang in next patch. The %dtprel(v) is the new syntax recently added in https://github.com/llvm/llvm-project/commit/bed89970c3df5e755820708580e405f65ddaa1ba. With this clang can emit 
 ```
 .section .tdata,"awT",@progbits
 .skip 8
@@ -209,17 +209,17 @@ And Assembler will assemble it to right relocations
 relocation in final binary. With that linker and assembler support we are ready to emit the debug location with clang.
 
 3 - https://github.com/llvm/llvm-project/commit/8e20a6dc866c54683f801d1ca041c6b3ba302485 This commit adds the support of the debug info by overriding target hook
-getDebugThreadLocalSymbol for return `AArch64::S_DTPREL` for Aarch64. With that .debug_info section will content a `DW_AT_location  (DW_OP_const8u 0x0, DW_OP_GNU_push_tls_address)` entry for TLS variables.
+getDebugThreadLocalSymbol for return `AArch64::S_DTPREL` for Aarch64. With that .debug_info section will contain a `DW_AT_location  (DW_OP_const8u 0x0, DW_OP_GNU_push_tls_address)` entry for TLS variables.
 
 4 - https://github.com/llvm/llvm-project/commit/fa136df3e74c1fd0b838352484aa38c471d21cbd which fixes the following warning when dumping the debug info with `llvm-dwarfdump`.
 ```
 warning: failed to compute relocation: R_AARCH64_TLS_DTPREL64, Invalid data was encountered while parsing the file
 ```
-To fix this warning we have mark the relocation as supported in llvm/lib/Object/RelocationResolver.cpp however also the final absolute address of a TLS variable is determined at runtime, resolving to the symbol's section-relative offset in the object file was only mitigate the warning for end user.  
+To fix this warning we have mark the relocation as supported in llvm/lib/Object/RelocationResolver.cpp however also the final absolute address of a TLS variable is determined at runtime, resolving to the symbol's section-relative offset in the object file only mitigate the warning for end user.  
 
 
-Since GNU binutils do not support this relocation we have also added `aarch64-emit-debug-tls-location` flag to llc will be false as default so that it is explicitly requires
-to pass for emitting this debug info until GNU binutils are also support it. This is to prevent breaking builds for users who are still using older GNU binutils that don't 
+Since GNU binutils do not support this relocation we have also added `aarch64-emit-debug-tls-location` flag to llc will be default to false so that it is explicitly requires
+to pass for emitting this debug info until GNU binutils also support it. This is to prevent breaking builds for users who are still using older GNU binutils that don't 
 recognize the relocation yet since clang by default uses GNU ld linker unless overridden by -fuse-ld=lld flag.
 
 5 - I have also sent the patch for GNU binutils https://sourceware.org/pipermail/binutils/2026-March/148550.html. This is my first patch to any GNU project and it helps me
@@ -228,4 +228,4 @@ to understand BFD library, gnu as, gnu ld and gold. It was new experience since 
 These changes enable correct debugging of TLS variables on AArch64 by providing end-to-end support across the compiler, assembler, linker, and debug tools. It closes a 
 long-standing gap in the toolchain and aligns AArch64 behavior with other architectures like x86_64.
 
-With that I will like to thanks many people who reviewed the changes, Peter Smith, Jessica Clarke, Fangrui Song, Igor Kudrin, Avi Kivity and Alice Carlotti from GNU side.
+With that I would like to thanks many people who reviewed the changes, Peter Smith, Jessica Clarke, Fangrui Song, Igor Kudrin, Avi Kivity and Alice Carlotti from GNU side.
