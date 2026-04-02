@@ -5,11 +5,14 @@ draft: false
 ---
 
 ### Introduction
-FileCheck is an LLVM pattern matching tool which is used to validate the compiler output. It compares "Check Prefixes" (expected patterns) against the "Input" (the actual compiler output). FileCheck is used in many projects like LLVM, MLIR, LLD, Clang, Swift etc.   
+FileCheck is an LLVM pattern matching tool which is used to validate the compiler output. It compares "Check Prefixes" (expected patterns) against the "Input"
+(the actual compiler output). FileCheck is used in many projects like LLVM, MLIR, LLD, Clang, Swift etc.   
 
 
 ### Problem
-If you have worked with LLVM, you must have written FileCheck based test cases too. It is a powerful tool, but when a complex test case fails, the output can become a daunting task to grasp. You often get a "Match not found" error, followed by a dump of the input text with FileCheck trying to match with right line. In practice, this can take a significant amount of time for complex test cases.
+If you have worked with LLVM, you must have written FileCheck based test cases too. It is a powerful tool, but when a complex test case fails, the output can become a
+daunting task to grasp. You often get a "Match not found" error, followed by a dump of the input text with FileCheck trying to match with right line. In practice, this can
+take a significant amount of time for complex test cases.
 
 
 ### Before and After view
@@ -32,17 +35,17 @@ by introducing the statefulness to the error reporting.
 Terminology -  
 CheckRegion = The "pool" of compiler output currently being searched.  
 CheckStr = The "rule" we are trying to satisfy, CHECK lines.  
-ActualLine = The corresponding line from input(compiler output)  
+ActualLine = The corresponding line from input(compiler output).  
 ExpectedLine = One line of CheckStr - CHECK prefix.  
 TargetLine = The "best guess" of what the compiler output actually was instead of what we wanted.  
 
 
 #### Mismatch Tracker
 CheckInput function is the entry point for our diff outout. It process each CHECK line of each CHECK-LABEL. If any of the CHECK mismatched it breaks
-the loop for that CheckRegion and report the error before continuing for next CheckRegion, marked by CHECK-LABEL. CHECK-LABEL is act as resyncronisation point.
+the loop for that CheckRegion and report the error before continuing for next CheckRegion, marked by CHECK-LABEL. CHECK-LABEL is act as resynchronization point.
 
 We have intercepted here and call out handleDiffFailure function which will handle the mismatch failures. handleDiffFailure do the reverse search in Diag vector which
-contains the fuzzy mismatches log. If this founds a match in diag vector we call it TargetLine/ActualLine/Input Line and if nothing matches in diag vector, our TargetLine
+contains the fuzzy mismatches log. If this finds a match in diag vector we call it TargetLine/ActualLine/Input Line and if nothing matches in diag vector, our TargetLine
 assume to be next line of input. Once we have the target line, we call printDiff with TargetLine and CheckStr(contain CHECK lines) to print the mismatches.
 
 In printDiff we get the expected line(CHECK prefixed) from CheckStr and we have TargetLine already. Next we gather the Diff Context and call renderDiff with ExpectedLineNo,
@@ -51,16 +54,17 @@ ActualLineNo, ExpectedLine, ActualLine, Context. Once mismatches print we advanc
 renderDiff simply render the diff, both split and unified view to standard ouput with proper colouring as used in diff tools.  
 
 #### Diff Context Window
-Printing only the mismatches are not enough to grasp the developer where the mismatches happening, providing them a context of one line above and below will help to spot the mismatche region. getDiffContext uses a struct to keep track of ActualLine, a line below it and a line above it. 
+Printing only the mismatches are not enough to help grasp the developer where the mismatches happening, providing them a context of one line above and below will them help to spot the mismatche region. getDiffContext uses a struct to keep track of ActualLine, a line below it and a line above it. 
 
 #### Variable Substitution
 FileCheck have variables that can be define to value, and further these variable can be use. Controlling the variable subsitution help developer to find what FileCheck was 
 expecting with regard to variables.
-For substituting the variables, I have used the FileCheck pre-calculated Substitutions vector which is prefilled with variable and their value.  function takes the expectedLine find the `[[`  to get variable which we want to subsitute. From Substitutions vector we get substitution and clean them to get CleanValue which will replace the variable that we got from expectedLine. So in that each variable from left to right in ExpectedLine is subsituted with substitution vector elements.
+For substituting the variables, I have used the FileCheck pre-calculated Substitutions vector which is prefilled with variables and their values. Function takes the expectedLine as input, find the `[[`  to get variable which we want to subsitute. From Substitutions vector we get its substitution and clean them to get CleanValue which will replace the variable that we got from expectedLine. So in that way each variable from left to right in ExpectedLine is substituted with substitution vector elements.
 
 #### Creating the Split-View Layout
-Split is also popular choice of diff viewing. For that just updated the renderDiff to print mismatches with alignment. It has one nice feature that mismatchLine is printed
-with getCenteredView function which make the long line mismatches centered on mismatched position by truncating the left and right part of Expected and Actual string and filling with `...`. This ensures that even long lines remain readable by focusing on the mismatched region.
+Split is also popular choice of diff viewing. For that I just updated the renderDiff to print mismatches with alignment. It has one nice feature that, mismatch lines are
+printed with getCenteredView function which make the long line mismatches centered on the mismatched position by truncating the left and right part of Expected and Actual
+string and filling it with `...`. This ensures that even long lines remain readable by focusing on the mismatched region.
 
 #### Handling CHECK-NOT Logic 
 Handling for CHECK-NOT was different since it is use for prohibiting the matches. We intercept matches in printMatch, get the match pos and route violations through the diff pipeline printDiff function.
@@ -87,9 +91,9 @@ https://github.com/llvm/llvm-project/pull/189359
 
 ### Final words
 
-I believe this is a significant improvement for developers productivity, they will spend less time interpreting the test case failures. It helps new comers to understand what their test case failure mean, as I have seen my newcomer friend getting overwhelmed by seeing the FileCheck output. 
+I believe this is a very useful improvement for developers productivity, they will spend less time interpreting the test case failures. It helps new comers to understand what their test case failure mean, as I have also seen my newcomer friends getting overwhelmed by seeing the FileCheck output. 
 
-I would like to thank Henrik G. Olsson for his patience and thorough reviews of such a large change. With these PRs most work is completed. but I do find out that many places FileCheck present wrong things since it is only do greedy heuristic search for mismatches.  
+I would like to thank Henrik G. Olsson for his patience and thorough reviews of such a large change. These PRs are still in review but most of the most work is completed. I do find out that many places FileCheck present wrong things since it is only do greedy heuristic search for mismatches.  
 
 
 ```  
